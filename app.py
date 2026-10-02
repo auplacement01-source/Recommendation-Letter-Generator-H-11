@@ -44,7 +44,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Program names are based on Air University's official admissions program pages.
+# Program names are based on the three AU department pages selected for this app.
 # The selected full name is stored and printed in the letter body; the code is used
 # only in the letter number. Codes are explicit so BSAF can never become just "B".
 PROGRAMS: dict[str, str] = {
@@ -95,6 +95,8 @@ PROGRAMS: dict[str, str] = {
     "Master of Science in Clinical Psychology": "MSCP",
     "Master of Science in Cyber Security": "MSCY",
     "Master of Science in Biomedical Engineering": "MSBME",
+    "Bachelor of Science in Clinical Psychology": "BSCP",
+    "M.Phil in Professional Psychology": "MPhil-PP",
     # PhD programs
     "PhD in Engineering": "PhD-ENG",
     "PhD in Management Sciences": "PhD-MS",
@@ -104,7 +106,51 @@ PROGRAMS: dict[str, str] = {
     "PhD in Computer Science": "PhD-CS",
     "PhD in Information Security": "PhD-IS",
     "PhD in Cyber Security": "PhD-CY",
+    "Master of Science in Management Sciences (HR/Finance/Marketing)": "MSMS",
+    "PhD in Management Sciences (HR/Finance/Marketing)": "PhD-MS",
     "Other / enter below": "OTHER",
+}
+
+# The user-provided department pages define the intended catalog for this app.
+# Keep these canonical body names even where AU's page gives only a shorter title.
+DEPARTMENT_PROGRAMS: dict[str, list[str]] = {
+    "AUSOM": [
+        "Bachelor of Business Administration (BBA-Honors)",
+        "Bachelor of Science in Accounting and Finance",
+        "Bachelor of Science in Aviation Management",
+        "Bachelor of Science in Healthcare Management",
+        "Bachelor of Science in Tourism and Hospitality Management",
+        "Master of Business Administration",
+        "Master of Science in Project Management",
+        "Master of Science in Management Sciences (HR/Finance/Marketing)",
+        "Master of Science in Business Analytics",
+        "PhD in Management Sciences (HR/Finance/Marketing)",
+    ],
+    "Humanities": [
+        "Bachelor of Science in English",
+        "MS / M.Phil in Linguistics and Literature",
+        "PhD in Linguistics and Literature",
+    ],
+    "Psychology": [
+        "Bachelor of Science in Psychology",
+        "Bachelor of Science in Clinical Psychology",
+        "Master of Science in Clinical Psychology",
+        "M.Phil in Professional Psychology",
+    ],
+}
+
+# Filter the wider AU catalog to the three departments supplied by the user.
+PROGRAMS = {
+    name: PROGRAMS[name]
+    for department_programs in DEPARTMENT_PROGRAMS.values()
+    for name in department_programs
+}
+PROGRAMS["Other / enter below"] = "OTHER"
+
+PROGRAM_DEPARTMENTS: dict[str, str] = {
+    name: department
+    for department, department_programs in DEPARTMENT_PROGRAMS.items()
+    for name in department_programs
 }
 
 PROGRAM_LEVELS: dict[str, str] = {
@@ -173,6 +219,13 @@ PROGRAM_ALIASES: dict[str, str] = {
     "PhD Computer Science": "PhD in Computer Science",
     "PhD Information Security": "PhD in Information Security",
     "PhD Cyber Security": "PhD in Cyber Security",
+    "MS Management (HR/Finance/Marketing)": "Master of Science in Management Sciences (HR/Finance/Marketing)",
+    "MS-Management (HR/Finance/Marketing)": "Master of Science in Management Sciences (HR/Finance/Marketing)",
+    "MS Management Sciences": "Master of Science in Management Sciences (HR/Finance/Marketing)",
+    "PhD Management Sciences (HR/Finance/Marketing)": "PhD in Management Sciences (HR/Finance/Marketing)",
+    "BS English": "Bachelor of Science in English",
+    "BS Clinical Psychology": "Bachelor of Science in Clinical Psychology",
+    "MPhil Professional Psychology": "M.Phil in Professional Psychology",
 }
 
 
@@ -188,7 +241,8 @@ for _program_name, _program_code in PROGRAMS.items():
         PROGRAM_LOOKUP[program_key(_program_name)] = _program_name
         PROGRAM_LOOKUP[program_key(_program_code)] = _program_name
 for _alias, _canonical_name in PROGRAM_ALIASES.items():
-    PROGRAM_LOOKUP[program_key(_alias)] = _canonical_name
+    if _canonical_name in PROGRAMS:
+        PROGRAM_LOOKUP[program_key(_alias)] = _canonical_name
 
 SEMESTERS = list(range(1, 13))
 DEPARTMENT_PRESETS = [
@@ -742,7 +796,7 @@ def app_main() -> None:
                 index=default_program_index,
                 format_func=lambda name: (
                     name if name == "Other / enter below"
-                    else f"{PROGRAM_LEVELS[name]} · {name} ({PROGRAMS[name]})"
+                    else f"{PROGRAM_DEPARTMENTS[name]} · {name} ({PROGRAMS[name]})"
                 ),
                 key="single_program",
             )
@@ -825,7 +879,7 @@ def app_main() -> None:
                 "Default program for blank cells",
                 [program for program in PROGRAMS if program != "Other / enter below"],
                 index=list(PROGRAMS).index("Master of Science in Clinical Psychology"),
-                format_func=lambda name: f"{PROGRAM_LEVELS[name]} · {name} ({PROGRAMS[name]})",
+                format_func=lambda name: f"{PROGRAM_DEPARTMENTS[name]} · {name} ({PROGRAMS[name]})",
                 key="bulk_program",
             )
         with bulk2:
