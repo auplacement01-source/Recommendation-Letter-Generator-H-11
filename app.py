@@ -44,14 +44,152 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Program names are based on Air University's official admissions program pages.
+# The selected full name is stored and printed in the letter body; the code is used
+# only in the letter number. Codes are explicit so BSAF can never become just "B".
 PROGRAMS: dict[str, str] = {
-    "Master of Science in Clinical Psychology": "MSCP",
-    "Bachelor of Business Administration": "BBA",
-    "Bachelor of Science in Psychology": "BSP",
+    # Undergraduate programs
+    "Bachelor of Science in International Relations": "BS-IR",
+    "Bachelor of Business Administration (BBA-Honors)": "BBA",
+    "Bachelor of Science in Aviation Management": "BS AviMgt",
+    "Bachelor of Electrical Engineering": "BEE",
+    "Bachelor of Mechatronics Engineering": "BMECH",
+    "Bachelor of Mechanical Engineering": "BME",
+    "Bachelor of Computer Engineering": "BCE",
+    "Bachelor of Science in Computer Sciences": "BSCS",
+    "Bachelor of Science in Information Technology": "BSIT",
+    "Bachelor of Science in Cyber Security": "BSCybSec",
+    "Bachelor of Science in Accounting and Finance": "BSAF",
+    "Bachelor of Science in English": "BSENG",
+    "Bachelor of Science in Physics": "BSPHY",
+    "Bachelor of Science in Mathematics": "BSMATH",
+    "Bachelor of Science in Psychology": "BS Psychology",
+    "Bachelor of Biomedical Engineering": "BE Biomedical Engineering",
+    "Bachelor of Science in Healthcare Management": "BSHM",
+    "Bachelor of Science in Tourism and Hospitality Management": "BSTHM",
+    "Bachelor of Science in Gaming and Multimedia": "BSGM",
+    "Bachelor of Science in Software Engineering": "BSSE",
+    "Bachelor of Science in Artificial Intelligence": "BSAI",
+    # Master's programs
+    "MS / M.Phil in Linguistics and Literature": "MSLL",
+    "M.Phil in Education": "MPhil-EDU",
     "Master of Business Administration": "MBA",
-    "Bachelor of Science in Computer Science": "BSCS",
+    "Master of Business Administration (Executive)": "MBA-EXEC",
+    "Master of Science in Applied Physics": "MSAP",
+    "Master of Science in Computer Sciences": "MSCS",
+    "Master of Science in Aerospace Engineering": "MSAE",
+    "Master of Science in Avionics Engineering": "MSAvE",
+    "Master of Science in Information Security": "MSIS",
+    "Master of Science in Electrical Engineering": "MSEE",
+    "Master of Science in Mechatronics Engineering": "MSME",
+    "Master of Science in Management Sciences": "MSMS",
+    "Master of Science in Business Analytics": "MSBA",
+    "Master of Science in Mathematics": "MSMATH",
+    "Master of Science in Mechanical Engineering": "MSMECH",
+    "Master of Science in Project Management": "MSPM",
+    "Master of Science in Strategic Studies": "MSSS",
+    "Master of Science in Data Science": "MSDS",
+    "Master of Science in Gaming and Multimedia": "MSGM",
+    "Master of Science in Artificial Intelligence": "MSAI",
+    "Master of Science in Systems Security": "MSSYSSEC",
+    "Master of Science in Clinical Psychology": "MSCP",
+    "Master of Science in Cyber Security": "MSCY",
+    "Master of Science in Biomedical Engineering": "MSBME",
+    # PhD programs
+    "PhD in Engineering": "PhD-ENG",
+    "PhD in Management Sciences": "PhD-MS",
+    "PhD in Linguistics and Literature": "PhD-LL",
+    "PhD in Mathematics": "PhD-MATH",
+    "PhD in Physics": "PhD-PHY",
+    "PhD in Computer Science": "PhD-CS",
+    "PhD in Information Security": "PhD-IS",
+    "PhD in Cyber Security": "PhD-CY",
     "Other / enter below": "OTHER",
 }
+
+PROGRAM_LEVELS: dict[str, str] = {
+    name: (
+        "Undergraduate" if name.startswith(("Bachelor",))
+        else "Master's" if name.startswith(("MS ", "MS /", "M.Phil", "Master"))
+        else "PhD" if name.startswith("PhD")
+        else "Other"
+    )
+    for name in PROGRAMS
+}
+
+# Accepted forms in bulk spreadsheets, including legacy AU page wording and
+# common abbreviations. Every alias resolves to one canonical full body name.
+PROGRAM_ALIASES: dict[str, str] = {
+    "BS IR": "Bachelor of Science in International Relations",
+    "Bachelor of Science International Relations": "Bachelor of Science in International Relations",
+    "BBA": "Bachelor of Business Administration (BBA-Honors)",
+    "Bachelor of Business Administration": "Bachelor of Business Administration (BBA-Honors)",
+    "BS AviMgt": "Bachelor of Science in Aviation Management",
+    "BS Aviation Management": "Bachelor of Science in Aviation Management",
+    "BEE": "Bachelor of Electrical Engineering",
+    "BMECH": "Bachelor of Mechatronics Engineering",
+    "BME": "Bachelor of Mechanical Engineering",
+    "BCE": "Bachelor of Computer Engineering",
+    "BSCS": "Bachelor of Science in Computer Sciences",
+    "Bachelor of Science in Computer Science": "Bachelor of Science in Computer Sciences",
+    "BSIT": "Bachelor of Science in Information Technology",
+    "BSCybSec": "Bachelor of Science in Cyber Security",
+    "BSAF": "Bachelor of Science in Accounting and Finance",
+    "Bachelor Studies in Accounting and Finance": "Bachelor of Science in Accounting and Finance",
+    "Bachelor of Science in Accounting & Finance": "Bachelor of Science in Accounting and Finance",
+    "BS Accounting and Finance": "Bachelor of Science in Accounting and Finance",
+    "BS Accounting & Finance": "Bachelor of Science in Accounting and Finance",
+    "BSENG": "Bachelor of Science in English",
+    "BSPHY": "Bachelor of Science in Physics",
+    "BSMATH": "Bachelor of Science in Mathematics",
+    "BS Psychology": "Bachelor of Science in Psychology",
+    "BSHM": "Bachelor of Science in Healthcare Management",
+    "BS Healthcare Management": "Bachelor of Science in Healthcare Management",
+    "BSTHM": "Bachelor of Science in Tourism and Hospitality Management",
+    "BS Tourism and Hospitality Management": "Bachelor of Science in Tourism and Hospitality Management",
+    "BSGM": "Bachelor of Science in Gaming and Multimedia",
+    "Bachelor of Science in Gaming & Multimedia": "Bachelor of Science in Gaming and Multimedia",
+    "BSSE": "Bachelor of Science in Software Engineering",
+    "Bachelor of Science in Software Engineering as HEC Approved Non PEC Program": "Bachelor of Science in Software Engineering",
+    "BSAI": "Bachelor of Science in Artificial Intelligence",
+    "Bachelor Studies in Accounting and Finance (BSAF)": "Bachelor of Science in Accounting and Finance",
+    "MSCP": "Master of Science in Clinical Psychology",
+    "MS Clinical Psychology": "Master of Science in Clinical Psychology",
+    "MBA": "Master of Business Administration",
+    "Master of Business Administration 2 Years": "Master of Business Administration",
+    "MS Business Analytics": "Master of Science in Business Analytics",
+    "MS in Applied Physics": "Master of Science in Applied Physics",
+    "MS in Strategic Studies": "Master of Science in Strategic Studies",
+    "MS Strategic Studies (MSSS)": "Master of Science in Strategic Studies",
+    "MS Cyber Security": "Master of Science in Cyber Security",
+    "MS Bio-Medical Engineering": "Master of Science in Biomedical Engineering",
+    "Masters of Science in Systems Security": "Master of Science in Systems Security",
+    "Master of Science in Management Sciences (18 Months)": "Master of Science in Management Sciences",
+    "PhD Engineering": "PhD in Engineering",
+    "PhD Management Sciences": "PhD in Management Sciences",
+    "PhD Linguistics and Literature": "PhD in Linguistics and Literature",
+    "PhD Mathematics": "PhD in Mathematics",
+    "PhD Physics": "PhD in Physics",
+    "PhD Computer Science": "PhD in Computer Science",
+    "PhD Information Security": "PhD in Information Security",
+    "PhD Cyber Security": "PhD in Cyber Security",
+}
+
+
+def program_key(value: Any) -> str:
+    """Normalize labels and abbreviations for reliable spreadsheet matching."""
+    text = "" if value is None else str(value).strip()
+    return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+
+PROGRAM_LOOKUP: dict[str, str] = {}
+for _program_name, _program_code in PROGRAMS.items():
+    if _program_name != "Other / enter below":
+        PROGRAM_LOOKUP[program_key(_program_name)] = _program_name
+        PROGRAM_LOOKUP[program_key(_program_code)] = _program_name
+for _alias, _canonical_name in PROGRAM_ALIASES.items():
+    PROGRAM_LOOKUP[program_key(_alias)] = _canonical_name
+
 SEMESTERS = list(range(1, 13))
 DEPARTMENT_PRESETS = [
     "IBD/AU/DSA/PLAC/H-11",
@@ -464,12 +602,12 @@ def get_year(date_text: str) -> str:
 def normalize_program(raw: Any, default_program: str) -> tuple[str, str]:
     text = safe_text(raw)
     if not text:
-        text = default_program
-    for label, code in PROGRAMS.items():
-        if text.lower() == label.lower() or text.upper() == code:
-            if label == "Other / enter below":
-                return "Other / enter below", code
-            return label, code
+        text = safe_text(default_program)
+    canonical_name = PROGRAM_LOOKUP.get(program_key(text))
+    if canonical_name:
+        return canonical_name, PROGRAMS[canonical_name]
+    if program_key(text) == program_key("Other / enter below"):
+        return "Other / enter below", "OTHER"
     # For a custom course name, create a stable short code from its words.
     code = re.sub(r"[^A-Z0-9]", "", "".join(part[:1] for part in re.findall(r"[A-Za-z0-9]+", text.upper())))[:8]
     return text, code or "OTHER"
@@ -596,10 +734,23 @@ def app_main() -> None:
                 ),
             )
             registration_id = st.text_input("Registration ID *", placeholder="e.g. 2504269", key="single_reg")
-            program_label = st.selectbox("Program *", list(PROGRAMS.keys()), index=0, key="single_program")
+            selectable_programs = list(PROGRAMS.keys())
+            default_program_index = selectable_programs.index("Master of Science in Clinical Psychology")
+            program_label = st.selectbox(
+                "Program *",
+                selectable_programs,
+                index=default_program_index,
+                format_func=lambda name: (
+                    name if name == "Other / enter below"
+                    else f"{PROGRAM_LEVELS[name]} · {name} ({PROGRAMS[name]})"
+                ),
+                key="single_program",
+            )
             custom_program = ""
             if program_label == "Other / enter below":
                 custom_program = st.text_input("Program name", placeholder="Enter full program name")
+            else:
+                st.caption(f"Letter-number code: **{PROGRAMS[program_label]}** · The full program name is used in the letter body.")
             semester = st.selectbox("Semester *", SEMESTERS, index=2, format_func=lambda n: f"{ordinal(n)} Semester", key="single_semester")
         with col2:
             detected_gender, gender_reason = infer_gender(student_name)
@@ -673,7 +824,8 @@ def app_main() -> None:
             default_bulk_program = st.selectbox(
                 "Default program for blank cells",
                 [program for program in PROGRAMS if program != "Other / enter below"],
-                index=0,
+                index=list(PROGRAMS).index("Master of Science in Clinical Psychology"),
+                format_func=lambda name: f"{PROGRAM_LEVELS[name]} · {name} ({PROGRAMS[name]})",
                 key="bulk_program",
             )
         with bulk2:
