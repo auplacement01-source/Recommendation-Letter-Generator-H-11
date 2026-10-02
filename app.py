@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hmac
 import io
+import numbers
 import os
 import re
 from datetime import date, datetime
@@ -454,7 +455,158 @@ def resolve_gender(name: str, explicit: Any = None) -> tuple[str, str]:
 def safe_text(value: Any) -> str:
     if value is None or pd.isna(value):
         return ""
+    if isinstance(value, numbers.Real) and not isinstance(value, bool):
+        if float(value).is_integer():
+            return str(int(value))
     return str(value).strip()
+
+
+ROSTER_HEADER_ALIASES: dict[str, set[str]] = {
+    "student_name": {
+        "studentname", "name", "fullname", "studentfullname", "nameofstudent",
+        "studentsname", "studentsfullname", "candidatename", "candidate", "applicantname",
+        "scholarname", "traineename",
+    },
+    "registration_id": {
+        "registrationid", "registrationnumber", "registrationno", "registration",
+        "reg", "regid", "regno", "regnumber", "registrationidno", "studentregistrationid",
+        "studentregistrationnumber", "studentregistrationno", "studentid", "studentnumber",
+        "studentno", "roll", "rollno",
+        "rollnumber", "enrollmentno", "enrolmentno", "enrollmentnumber",
+        "enrolmentnumber", "universityid", "registrationnumberid",
+    },
+    "program": {
+        "program", "programme", "programname", "programtitle", "degree", "degreeprogram",
+        "degreeprogramme", "degreename", "degreetitle", "course", "coursename",
+        "courseofstudy", "qualification", "major", "discipline", "academicprogram",
+    },
+    "semester": {
+        "semester", "sem", "semesterno", "semesternumber", "currentsemester", "term",
+    },
+    "gender": {"gender", "sex", "pronoun", "pronouns"},
+    "company_name": {
+        "company", "companyname", "organization", "organizationname", "organisation",
+        "organisationname", "employer", "employername", "firm", "internshipcompany",
+        "hostorganization", "hostorganisation",
+    },
+    "city": {"city", "cityname", "location"},
+    "recipient_mode": {
+        "recipientmode", "recipienttype", "lettermode", "lettertype", "companyspecific",
+        "generalletter",
+    },
+}
+ROSTER_HEADER_LOOKUP = {
+    re.sub(r"[^a-z0-9]", "", alias.casefold()): field
+    for field, aliases in ROSTER_HEADER_ALIASES.items()
+    for alias in aliases
+}
+
+
+def roster_header_token(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", safe_text(value).casefold())
+
+
+def roster_field_for_header(value: Any) -> str | None:
+    token = roster_header_token(value)
+    direct = ROSTER_HEADER_LOOKUP.get(token)
+    if direct:
+        return direct
+    if "student" in token and "name" in token:
+        return "student_name"
+    if ("registration" in token or token.startswith("reg")) and any(x in token for x in ("id", "no", "num", "number")):
+        return "registration_id"
+    if ("enrollment" in token or "enrolment" in token) and any(x in token for x in ("id", "no", "num", "number")):
+        return "registration_id"
+    if "roll" in token and any(x in token for x in ("id", "no", "num", "number")):
+        return "registration_id"
+    if any(x in token for x in ("program", "programme", "degree", "course", "qualification")):
+        return "program"
+    if "semester" in token or token == "sem":
+        return "semester"
+    if "gender" in token or "pronoun" in token or token == "sex":
+        return "gender"
+    if any(x in token for x in ("company", "organization", "organisation", "employer", "firm")):
+        return "company_name"
+    if "city" in token or token == "location":
+        return "city"
+    return None
+
+
+def detect_roster_header(raw: pd.DataFrame, scan_rows: int = 20) -> tuple[int, dict[str, list[int]], int] | None:
+    """Find the strongest likely header row, even when a sheet starts with a title."""
+    best: tuple[int, dict[str, list[int]], int] | None = None
+    for row_index in range(min(scan_rows, len(raw))):
+        mapping: dict[str, list[int]] = {}
+        for column_index, value in enumerate(raw.iloc[row_index].tolist()):
+            field = roster_field_for_header(value)
+            if field:
+                mapping.setdefault(field, []).append(column_index)
+        if not {"student_name", "registration_id"}.issubset(mapping):
+            continue
+        score = len(mapping) * 10 + len(mapping.get("student_name", [])) + len(mapping.get("registration_id", []))
+        candidate = (row_index, mapping, score)
+        if best is None or score > best[2]:
+            best = candidate
+    return best
+
+
+def _canonicalize_roster_sheet(raw: pd.DataFrame, sheet_name: str) -> tuple[pd.DataFrame, dict[str, Any]] | None:
+    detected = detect_roster_header(raw)
+    if detected is None:
+        return None
+    header_row, mapping, score = detected
+    output: list[dict[str, Any]] = []
+    for row_index in range(header_row + 1, len(raw)):
+        values = raw.iloc[row_index].tolist()
+        record: dict[str, Any] = {}
+        for field, column_indexes in mapping.items():
+            record[field] = next(
+                (safe_text(values[column]) for column in column_indexes
+                 if column < len(values) and safe_text(values[column])),
+                "",
+            )
+        if not any(record.values()):
+            continue
+        record["_source_sheet"] = sheet_name
+        record["_source_row"] = row_index + 1
+        output.append(record)
+    columns = list(ROSTER_HEADER_ALIASES) + ["_source_sheet", "_source_row"]
+    frame = pd.DataFrame(output, columns=columns).fillna("")
+    mapped_headers = {
+        field: [safe_text(raw.iat[header_row, col]) for col in indexes]
+        for field, indexes in mapping.items()
+    }
+    return frame, {"sheet": sheet_name, "header_row": header_row + 1, "mapped_headers": mapped_headers, "score": score}
+
+
+def parse_uploaded_roster(filename: str, content: bytes) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    """Read CSV/XLSX rosters with varied headers and optional title rows/sheets."""
+    if filename.casefold().endswith(".csv"):
+        try:
+            raw = pd.read_csv(io.BytesIO(content), header=None, dtype=object, encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            raw = pd.read_csv(io.BytesIO(content), header=None, dtype=object, encoding="latin-1")
+        sheets = {"CSV": raw}
+    else:
+        sheets = pd.read_excel(io.BytesIO(content), sheet_name=None, header=None, dtype=object)
+    parsed: list[pd.DataFrame] = []
+    details: list[dict[str, Any]] = []
+    for sheet_name, raw in sheets.items():
+        if raw is None or raw.empty:
+            continue
+        result = _canonicalize_roster_sheet(raw, str(sheet_name))
+        if result:
+            frame, detail = result
+            if not frame.empty:
+                parsed.append(frame)
+                details.append(detail)
+    if not parsed:
+        raise ValueError(
+            "Could not find a roster header row with both a student-name column and a registration-ID column. "
+            "Common accepted headings include Name / Student Name and Registration ID / Reg No / Roll No."
+        )
+    combined = pd.concat(parsed, ignore_index=True).fillna("")
+    return combined, details
 
 
 def make_row(
@@ -486,41 +638,65 @@ def make_row(
     }
 
 
+class PartialSaveError(RuntimeError):
+    def __init__(self, message: str, saved_records: list[dict[str, Any]]):
+        super().__init__(message)
+        self.saved_records = saved_records
+
+
+def is_unique_number_conflict(exc: Exception) -> bool:
+    code = safe_text(getattr(exc, "code", ""))
+    message = str(exc).casefold()
+    return code == "23505" or "23505" in message or "duplicate key" in message or "unique constraint" in message
+
+
 def allocate_and_save(client: Client, rows: list[dict[str, Any]], include_semester: bool) -> list[dict[str, Any]]:
-    """Allocate unique numbers atomically in Postgres, then save each letter record."""
+    """Allocate per-office/program/year serials atomically and never insert a duplicate number."""
     saved: list[dict[str, Any]] = []
     for row in rows:
         yr = date.fromisoformat(row["letter_date"]).strftime("%y")
         try:
-            rpc_result = client.rpc(
-                "next_letter_serial",
-                {
-                    "p_department_prefix": row["department_prefix"],
-                    "p_program_code": row["program_code"],
-                    "p_year_2d": yr,
-                },
-            ).execute()
-            sequence = rpc_result.data
-            if isinstance(sequence, list):
-                sequence = sequence[0]
-            sequence = int(sequence)
-            parts = [row["department_prefix"], row["program_code"], yr]
-            if include_semester:
-                parts.append(f"S{row['semester']}")
-            parts.append(f"{sequence:03d}")
-            record = {
-                **row,
-                "year_2d": yr,
-                "sequence_no": sequence,
-                "letter_number": "/".join(parts),
-            }
-            result = client.table("letters").insert(record).execute()
-            if not result.data:
-                raise RuntimeError("Supabase did not return the inserted letter record.")
-            saved.append(result.data[0])
+            for attempt in range(25):
+                rpc_result = client.rpc(
+                    "next_letter_serial",
+                    {
+                        "p_department_prefix": row["department_prefix"],
+                        "p_program_code": row["program_code"],
+                        "p_year_2d": yr,
+                    },
+                ).execute()
+                sequence = rpc_result.data
+                if isinstance(sequence, list):
+                    sequence = sequence[0]
+                if isinstance(sequence, dict):
+                    sequence = next(iter(sequence.values()))
+                sequence = int(sequence)
+                parts = [row["department_prefix"], row["program_code"], yr]
+                if include_semester:
+                    parts.append(f"S{row['semester']}")
+                parts.append(f"{sequence:03d}")
+                record = {
+                    **row,
+                    "year_2d": yr,
+                    "sequence_no": sequence,
+                    "letter_number": "/".join(parts),
+                }
+                try:
+                    result = client.table("letters").insert(record).execute()
+                except Exception as insert_error:
+                    if is_unique_number_conflict(insert_error) and attempt < 24:
+                        continue
+                    raise
+                if not result.data:
+                    raise RuntimeError("Supabase did not return the inserted letter record.")
+                saved.append(result.data[0])
+                break
+            else:
+                raise RuntimeError("Could not find an unused letter number after 25 allocation attempts.")
         except Exception as exc:
-            raise RuntimeError(
-                f"Could not save {row.get('student_name', 'student')} ({row.get('registration_id', '')}): {exc}"
+            raise PartialSaveError(
+                f"Could not save {row.get('student_name', 'student')} ({row.get('registration_id', '')}): {exc}",
+                saved,
             ) from exc
     return saved
 
@@ -946,15 +1122,22 @@ def app_main() -> None:
         uploaded = st.file_uploader("Choose student roster", type=["xlsx", "csv"], key="bulk_upload")
         if uploaded:
             try:
-                if uploaded.name.lower().endswith(".csv"):
-                    df = pd.read_csv(uploaded, dtype=str).fillna("")
-                else:
-                    df = pd.read_excel(uploaded, dtype=str).fillna("")
-                df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
-                st.caption(f"Loaded {len(df)} row(s). Required columns: `student_name` and `registration_id`.")
+                df, import_details = parse_uploaded_roster(uploaded.name, uploaded.getvalue())
+                source_summary = ", ".join(
+                    f"{detail['sheet']} (header row {detail['header_row']})" for detail in import_details
+                )
+                st.caption(
+                    f"Detected {len(df)} student row(s) from {len(import_details)} roster sheet(s): {source_summary}. "
+                    "Extra columns are ignored; blank program/semester cells use the selected defaults."
+                )
+                mapped_text = []
+                for detail in import_details:
+                    for field, headers in detail["mapped_headers"].items():
+                        mapped_text.append(f"`{field}` ← {', '.join(headers)}")
+                st.info("Detected columns: " + " · ".join(dict.fromkeys(mapped_text)))
                 st.dataframe(df.head(15), use_container_width=True, hide_index=True)
                 if not {"student_name", "registration_id"}.issubset(df.columns):
-                    st.error("The spreadsheet needs columns named `student_name` and `registration_id`. Download the blank template above.")
+                    st.error("The spreadsheet needs a student name and registration ID. Download the blank template above or rename your columns to common headings such as `Name` and `Reg No`.")
                 else:
                     if st.button("Review and generate all letters", type="primary", key="bulk_generate"):
                         default_program, default_code = normalize_program(default_bulk_program, default_bulk_program)
@@ -962,35 +1145,39 @@ def app_main() -> None:
                         problems: list[str] = []
                         seen: set[tuple[str, str, str]] = set()
                         for idx, rowdata in df.iterrows():
-                            excel_row = idx + 2
+                            excel_row = safe_text(rowdata.get("_source_row")) or str(idx + 2)
+                            excel_sheet = safe_text(rowdata.get("_source_sheet"))
+                            source_location = f"{excel_sheet}, row {excel_row}" if excel_sheet else f"row {excel_row}"
                             name = safe_text(rowdata.get("student_name"))
                             reg = safe_text(rowdata.get("registration_id"))
                             if not name or not reg:
-                                problems.append(f"Excel row {excel_row}: missing student name or registration ID; skipped.")
+                                problems.append(f"{source_location}: missing student name or registration ID; skipped.")
                                 continue
                             key = (reg.casefold(), safe_text(rowdata.get("company_name")).casefold(), safe_text(rowdata.get("program")).casefold())
                             if key in seen:
-                                problems.append(f"Excel row {excel_row}: duplicate registration/company/program in this upload; skipped.")
+                                problems.append(f"{source_location}: duplicate registration/company/program in this upload; skipped.")
                                 continue
                             seen.add(key)
                             try:
                                 program, code = normalize_program(rowdata.get("program"), default_program)
                                 if program == "Other / enter below":
-                                    problems.append(f"Excel row {excel_row}: the 'Other' program option needs a full program name in the spreadsheet; skipped.")
+                                    problems.append(f"{source_location}: the 'Other' program option needs a full program name in the spreadsheet; skipped.")
                                     continue
                                 sem = normalize_semester(rowdata.get("semester"), default_bulk_semester)
                                 gender, _ = resolve_gender(name, rowdata.get("gender"))
                                 mode_raw = safe_text(rowdata.get("recipient_mode")).lower()
+                                company = safe_text(rowdata.get("company_name"))
+                                city_value = safe_text(rowdata.get("city"))
                                 if mode_raw in {"company", "organization", "company / organization", "specific"}:
                                     mode = "Company / organization"
                                 elif mode_raw in {"general", "general (any organization)", "any"}:
                                     mode = "General (any organization)"
+                                elif company:
+                                    mode = "Company / organization"
                                 else:
                                     mode = bulk_default_mode
-                                company = safe_text(rowdata.get("company_name"))
-                                city_value = safe_text(rowdata.get("city"))
                                 if mode == "Company / organization" and not company:
-                                    problems.append(f"Excel row {excel_row}: company mode was selected but company_name is blank; skipped.")
+                                    problems.append(f"{source_location}: company mode was selected but no company name was found; skipped.")
                                     continue
                                 prepared.append(make_row(
                                     student_name=name, registration_id=reg, gender=gender,
@@ -999,7 +1186,7 @@ def app_main() -> None:
                                     recipient_mode=mode, company_name=company, city=city_value,
                                 ))
                             except Exception as exc:
-                                problems.append(f"Excel row {excel_row}: {exc}; skipped.")
+                                problems.append(f"{source_location}: {exc}; skipped.")
                         if problems:
                             with st.expander(f"Import notes ({len(problems)})", expanded=True):
                                 for problem in problems: st.write(f"- {problem}")
@@ -1012,8 +1199,18 @@ def app_main() -> None:
                                     saved_batch = allocate_and_save(client, [{**row, **common} for row in prepared], include_semester)
                                 st.session_state["last_bulk_records"] = saved_batch
                                 st.success(f"Successfully saved {len(saved_batch)} letter(s). The combined document is ready below.")
+                            except PartialSaveError as exc:
+                                st.session_state["last_bulk_records"] = exc.saved_records
+                                if exc.saved_records:
+                                    st.error(
+                                        f"Batch stopped after {len(exc.saved_records)} letter(s) were saved. "
+                                        f"Those letters are available below and remain searchable for reprint. "
+                                        f"Fix the failed row before uploading the remaining students. Details: {exc}"
+                                    )
+                                else:
+                                    st.error(f"No letters in this batch were saved. Details: {exc}")
                             except Exception as exc:
-                                st.error(f"Batch stopped after any earlier successful inserts. Check Records & export before retrying to avoid duplicate letters. Details: {exc}")
+                                st.error(f"Could not finish the batch. Check Records & export before retrying. Details: {exc}")
                     last_batch = st.session_state.get("last_bulk_records", [])
                     if last_batch:
                         st.dataframe(pd.DataFrame(last_batch)[[c for c in ["letter_number", "student_name", "registration_id", "gender", "program", "semester", "company_name"] if c in last_batch[0]]], use_container_width=True, hide_index=True)
