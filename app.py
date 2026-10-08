@@ -1304,8 +1304,8 @@ def app_main() -> None:
     with tabs[4]:
         st.markdown("### Letter collection register")
         st.caption(
-            "Review all generated letters and mark how each copy was collected. "
-            "Gender is intentionally omitted from this register. Changes are saved to Supabase."
+            "Review generated letters and mark how each copy was collected. "
+            "Only the name, registration ID, program name, and collection status are shown."
         )
         if "collection_refresh_token" not in st.session_state:
             st.session_state["collection_refresh_token"] = 0
@@ -1321,7 +1321,7 @@ def app_main() -> None:
         if collection_records:
             st.metric("Letters in register", len(collection_records))
             collection_query = st.text_input(
-                "Filter by student, registration ID, organization, or letter number",
+                "Filter by name, registration ID, or program",
                 key="collection_filter",
             )
             filtered_records = collection_records
@@ -1330,16 +1330,11 @@ def app_main() -> None:
                 filtered_records = [
                     record for record in collection_records
                     if any(query in safe_text(record.get(field)).casefold() for field in (
-                        "student_name", "registration_id", "company_name", "letter_number", "program"
+                        "student_name", "registration_id", "program"
                     ))
                 ]
 
-            display_fields = [
-                "letter_number", "letter_date", "student_name", "registration_id", "program",
-                "program_code", "semester", "recipient_mode", "company_name", "city",
-                "department_prefix", "year_2d", "sequence_no", "officer_name", "officer_title",
-                "office_name", "created_at", "collection_method", "collected_at",
-            ]
+            display_fields = ["student_name", "registration_id", "program", "collection_method"]
             table_rows = []
             record_ids = []
             for record in filtered_records:
@@ -1351,30 +1346,15 @@ def app_main() -> None:
             editor_df = pd.DataFrame(table_rows, columns=display_fields)
             editor_df.index = pd.Index(record_ids, name="record_id")
             editor_config = {
-                "letter_number": st.column_config.TextColumn("Letter number", disabled=True),
-                "letter_date": st.column_config.TextColumn("Letter date", disabled=True),
-                "student_name": st.column_config.TextColumn("Student name", disabled=True),
-                "registration_id": st.column_config.TextColumn("Registration ID", disabled=True),
-                "program": st.column_config.TextColumn("Program", disabled=True),
-                "program_code": st.column_config.TextColumn("Program code", disabled=True),
-                "semester": st.column_config.NumberColumn("Semester", disabled=True),
-                "recipient_mode": st.column_config.TextColumn("Recipient type", disabled=True),
-                "company_name": st.column_config.TextColumn("Organization / placement", disabled=True),
-                "city": st.column_config.TextColumn("City", disabled=True),
-                "department_prefix": st.column_config.TextColumn("Office prefix", disabled=True),
-                "year_2d": st.column_config.TextColumn("Year", disabled=True),
-                "sequence_no": st.column_config.NumberColumn("Sequence", disabled=True),
-                "officer_name": st.column_config.TextColumn("Officer", disabled=True),
-                "officer_title": st.column_config.TextColumn("Officer title", disabled=True),
-                "office_name": st.column_config.TextColumn("Office", disabled=True),
-                "created_at": st.column_config.TextColumn("Record created", disabled=True),
+                "student_name": st.column_config.TextColumn("Name", disabled=True),
+                "registration_id": st.column_config.TextColumn("Reg ID", disabled=True),
+                "program": st.column_config.TextColumn("Program Name", disabled=True),
                 "collection_method": st.column_config.SelectboxColumn(
                     "Collection status",
                     options=["Not collected", "By self", "By CR", "By friend"],
                     required=True,
                     help="Select who collected the letter. The selection is saved with the letter record.",
                 ),
-                "collected_at": st.column_config.TextColumn("Collected at", disabled=True),
             }
             edited_df = st.data_editor(
                 editor_df,
