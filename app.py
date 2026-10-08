@@ -5,7 +5,7 @@ import io
 import numbers
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -934,7 +934,7 @@ def excel_bytes(records: list[dict[str, Any]]) -> bytes:
     preferred = [
         "letter_number", "letter_date", "student_name", "registration_id", "gender",
         "program", "program_code", "semester", "recipient_mode", "company_name", "city",
-        "department_prefix", "year_2d", "sequence_no", "created_at",
+        "department_prefix", "year_2d", "sequence_no", "created_at", "collection_method", "collected_at",
     ]
     columns = [c for c in preferred if c in df.columns] + [c for c in df.columns if c not in preferred]
     out = io.BytesIO()
@@ -1003,7 +1003,7 @@ def app_main() -> None:
         "officer_title": officer_title,
         "office_name": office_name,
     }
-    tabs = st.tabs(["Create one", "Bulk from Excel", "Find / reprint", "Records & export"])
+    tabs = st.tabs(["Create one", "Bulk from Excel", "Find / reprint", "Records & export", "Collection tracking"])
 
     # ------------------------------ Single letter ------------------------------
     with tabs[0]:
@@ -1299,6 +1299,129 @@ def app_main() -> None:
             )
         else:
             st.info("Click **Load saved records** to show and export the Supabase register.")
+
+    # ------------------------------ Collection tracking ------------------------------
+    with tabs[4]:
+        st.markdown("### Letter collection register")
+        st.caption(
+            "Review all generated letters and mark how each copy was collected. "
+            "Gender is intentionally omitted from this register. Changes are saved to Supabase."
+        )
+        if "collection_refresh_token" not in st.session_state:
+            st.session_state["collection_refresh_token"] = 0
+        if st.button("Load / refresh generated letters", type="primary", key="load_collection_records"):
+            try:
+                with st.spinner("Loading letter collection records from Supabase…"):
+                    st.session_state["collection_records"] = fetch_all_records(client)
+                    st.session_state["collection_refresh_token"] += 1
+            except Exception as exc:
+                st.error(f"Could not load collection records: {exc}")
+
+        collection_records = st.session_state.get("collection_records", [])
+        if collection_records:
+            st.metric("Letters in register", len(collection_records))
+            collection_query = st.text_input(
+                "Filter by student, registration ID, organization, or letter number",
+                key="collection_filter",
+            )
+            filtered_records = collection_records
+            if collection_query.strip():
+                query = collection_query.strip().casefold()
+                filtered_records = [
+                    record for record in collection_records
+                    if any(query in safe_text(record.get(field)).casefold() for field in (
+                        "student_name", "registration_id", "company_name", "letter_number", "program"
+                    ))
+                ]
+
+            display_fields = [
+                "letter_number", "letter_date", "student_name", "registration_id", "program",
+                "program_code", "semester", "recipient_mode", "company_name", "city",
+                "department_prefix", "year_2d", "sequence_no", "officer_name", "officer_title",
+                "office_name", "created_at", "collection_method", "collected_at",
+            ]
+            table_rows = []
+            record_ids = []
+            for record in filtered_records:
+                record_ids.append(str(record.get("id", "")))
+                row = {field: record.get(field) for field in display_fields}
+                row["collection_method"] = safe_text(record.get("collection_method")) or "Not collected"
+                table_rows.append(row)
+
+            editor_df = pd.DataFrame(table_rows, columns=display_fields)
+            editor_df.index = pd.Index(record_ids, name="record_id")
+            editor_config = {
+                "letter_number": st.column_config.TextColumn("Letter number", disabled=True),
+                "letter_date": st.column_config.TextColumn("Letter date", disabled=True),
+                "student_name": st.column_config.TextColumn("Student name", disabled=True),
+                "registration_id": st.column_config.TextColumn("Registration ID", disabled=True),
+                "program": st.column_config.TextColumn("Program", disabled=True),
+                "program_code": st.column_config.TextColumn("Program code", disabled=True),
+                "semester": st.column_config.NumberColumn("Semester", disabled=True),
+                "recipient_mode": st.column_config.TextColumn("Recipient type", disabled=True),
+                "company_name": st.column_config.TextColumn("Organization / placement", disabled=True),
+                "city": st.column_config.TextColumn("City", disabled=True),
+                "department_prefix": st.column_config.TextColumn("Office prefix", disabled=True),
+                "year_2d": st.column_config.TextColumn("Year", disabled=True),
+                "sequence_no": st.column_config.NumberColumn("Sequence", disabled=True),
+                "officer_name": st.column_config.TextColumn("Officer", disabled=True),
+                "officer_title": st.column_config.TextColumn("Officer title", disabled=True),
+                "office_name": st.column_config.TextColumn("Office", disabled=True),
+                "created_at": st.column_config.TextColumn("Record created", disabled=True),
+                "collection_method": st.column_config.SelectboxColumn(
+                    "Collection status",
+                    options=["Not collected", "By self", "By CR", "By friend"],
+                    required=True,
+                    help="Select who collected the letter. The selection is saved with the letter record.",
+                ),
+                "collected_at": st.column_config.TextColumn("Collected at", disabled=True),
+            }
+            edited_df = st.data_editor(
+                editor_df,
+                column_config=editor_config,
+                disabled=[field for field in display_fields if field != "collection_method"],
+                hide_index=True,
+                num_rows="fixed",
+                use_container_width=True,
+                key=f"collection_editor_{st.session_state['collection_refresh_token']}",
+            )
+            if st.button("Save collection updates", type="primary", key="save_collection_updates"):
+                records_by_id = {str(record.get("id", "")): dict(record) for record in collection_records}
+                saved_changes = 0
+                update_errors = []
+                for record_id, edited_row in edited_df.iterrows():
+                    record_id = str(record_id)
+                    original = records_by_id.get(record_id)
+                    if not original:
+                        continue
+                    new_method = safe_text(edited_row.get("collection_method")) or "Not collected"
+                    old_method = safe_text(original.get("collection_method")) or "Not collected"
+                    if new_method == old_method:
+                        continue
+                    if new_method == "Not collected":
+                        update_values = {"collection_method": None, "collected_at": None}
+                    else:
+                        update_values = {
+                            "collection_method": new_method,
+                            "collected_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    try:
+                        client.table("letters").update(update_values).eq("id", record_id).execute()
+                        original.update(update_values)
+                        saved_changes += 1
+                    except Exception as exc:
+                        update_errors.append(f"{original.get('letter_number', record_id)}: {exc}")
+                st.session_state["collection_records"] = collection_records
+                if update_errors:
+                    st.error(
+                        f"Saved {saved_changes} change(s); {len(update_errors)} could not be saved. "
+                        "If the database columns are missing, run `supabase_collection_tracking.sql` in Supabase SQL Editor. "
+                        + " | ".join(update_errors[:5])
+                    )
+                else:
+                    st.success(f"Saved {saved_changes} collection update(s) to Supabase.")
+        else:
+            st.info("Click **Load / refresh generated letters** to open the collection register.")
 
     st.divider()
     st.caption("Letter wording follows the supplied sample. Verify student details, pronouns, recipient, and letter number before printing or issuing an official letter.")
