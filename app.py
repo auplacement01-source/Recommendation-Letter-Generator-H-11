@@ -840,7 +840,7 @@ def add_letter(doc: Document, record: dict[str, Any], final_page: bool = False) 
     )
 
     paragraph = doc.add_paragraph(
-        'It is requested that the student may please be provided with an internship opportunity at "your organization". '
+        'It is requested that the student may please be provided with an internship opportunity at your organization. '
         "The student will benefit a great deal by working at an organization with a good reputation, which would go a long way in professional development."
     )
     paragraph.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
