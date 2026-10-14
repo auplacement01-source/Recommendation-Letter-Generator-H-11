@@ -839,9 +839,8 @@ def add_letter(doc: Document, record: dict[str, Any], final_page: bool = False) 
         f"{gender} is currently enrolled in the {ordinal(semester)} Semester of {program}."
     )
 
-    organization_phrase = f"at {company}" if mode == "Company / organization" and company else "at your esteemed organization"
     paragraph = doc.add_paragraph(
-        f"It is requested that the student may please be provided with an internship opportunity {organization_phrase}. "
+        'It is requested that the student may please be provided with an internship opportunity at "your organization". '
         "The student will benefit a great deal by working at an organization with a good reputation, which would go a long way in professional development."
     )
     paragraph.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
